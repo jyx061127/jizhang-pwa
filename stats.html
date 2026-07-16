@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>记账本 · 统计</title>
+<style>
+:root{--surface:#fff;--text:#1a1a1a;--text2:#6b7280;--green:#27ae60;--red:#e74c3c;--ramp1:#d4f1e4;--ramp2:#a3e0c0;--ramp3:#6fcf97;--ramp4:#27ae60;--ramp5:#1e8449;--border:#e5e7eb;--bg:#f9fafb}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);max-width:480px;margin:0 auto;padding:0 0 80px;min-height:100vh}
+.header{background:var(--surface);padding:14px 20px;position:sticky;top:0;z-index:10;box-shadow:0 1px 2px rgba(0,0,0,.05);display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:18px;font-weight:700}
+.month-nav{display:flex;gap:4px;align-items:center}
+.month-nav button{border:none;background:none;font-size:16px;cursor:pointer;padding:4px 8px;color:var(--text2)}
+.month-nav button:active{color:var(--green)}
+.month-nav span{font-size:14px;font-weight:600;min-width:60px;text-align:center}
+
+/* KPI Row */
+.kpi-row{display:flex;gap:8px;padding:16px 16px 8px}
+.kpi{flex:1;background:var(--surface);border-radius:14px;padding:16px 12px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.kpi .label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.kpi .value{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.kpi .value.green{color:var(--green)}
+.kpi .value.red{color:var(--red)}
+.kpi .sub{font-size:11px;color:var(--text2);margin-top:2px}
+
+/* Section */
+.section{padding:8px 16px}
+.section h2{font-size:13px;font-weight:600;color:var(--text2);margin:8px 0;text-transform:uppercase;letter-spacing:.5px}
+
+/* Chart containers */
+.chart-card{background:var(--surface);border-radius:14px;padding:16px;margin-bottom:8px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.chart-card canvas{display:block;width:100%}
+
+/* Spend list */
+.spend-list{padding:0}
+.spend-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px}
+.spend-row:last-child{border:none}
+.spend-icon{font-size:22px;width:32px;text-align:center;flex-shrink:0}
+.spend-name{flex:1;font-size:14px;font-weight:500}
+.spend-bar-bg{flex:2;height:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+.spend-bar-fg{height:100%;border-radius:4px;transition:width .4s}
+.spend-amount{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;min-width:50px;text-align:right}
+.spend-pct{font-size:11px;color:var(--text2);min-width:36px;text-align:right}
+
+/* Tabs */
+.tab-row{display:flex;gap:0;background:var(--surface);border-radius:14px;padding:3px;margin:0 16px 8px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.tab-row button{flex:1;padding:10px;border:none;background:none;font-size:13px;font-weight:500;border-radius:12px;cursor:pointer;color:var(--text2);transition:.2s}
+.tab-row button.active{background:var(--green);color:#fff}
+
+.back-btn{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:10px 24px;font-size:14px;color:var(--text);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.08);text-decoration:none}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>统计</h1>
+  <div class="month-nav">
+    <button onclick="changeMonth(-1)">◀</button>
+    <span id="monthLabel">7月</span>
+    <button onclick="changeMonth(1)">▶</button>
+  </div>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi"><div class="label">收入</div><div class="value green" id="kpiIncome">¥0</div></div>
+  <div class="kpi"><div class="label">支出</div><div class="value red" id="kpiExpense">¥0</div></div>
+  <div class="kpi"><div class="label">结余</div><div class="value" id="kpiBalance">¥0</div></div>
+</div>
+
+<div class="tab-row">
+  <button class="active" onclick="switchTab('category')">分类</button>
+  <button onclick="switchTab('trend')">趋势</button>
+</div>
+
+<div id="viewCategory">
+  <div class="section"><h2>支出分类排行</h2></div>
+  <div class="chart-card"><canvas id="barChart"></canvas></div>
+  <div class="chart-card"><div class="spend-list" id="spendList"></div></div>
+</div>
+
+<div id="viewTrend" style="display:none">
+  <div class="section"><h2>月度收支趋势</h2></div>
+  <div class="chart-card"><canvas id="lineChart"></canvas></div>
+</div>
+
+<a class="back-btn" href="index.html">← 返回记账</a>
+
+<script>
+// ── Data ──
+function LS(k,v){if(v!==undefined){localStorage.setItem(k,JSON.stringify(v));return v}try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}
+function getTxns(){return LS('txns')||[]}
+let currentMonth = new Date().getMonth();
+let currentYear = new Date().getFullYear();
+let activeTab = 'category';
+
+function switchTab(t){activeTab=t;document.querySelectorAll('.tab-row button').forEach((b,i)=>b.classList.toggle('active',(i===0&&t==='category')||(i===1&&t==='trend')));document.getElementById('viewCategory').style.display=t==='category'?'block':'none';document.getElementById('viewTrend').style.display=t==='trend'?'block':'none';if(t==='trend')drawLineChart()}
+
+function changeMonth(d){currentMonth+=d;if(currentMonth<0){currentMonth=11;currentYear--}else if(currentMonth>11){currentMonth=0;currentYear++}document.getElementById('monthLabel').textContent=(currentMonth+1)+'月';renderAll()}
+
+// ── Render ──
+function renderAll(){
+  var txns=getTxns().filter(function(t){var d=new Date(t.date);return d.getMonth()===currentMonth&&d.getFullYear()===currentYear});
+  var income=0,expense=0,catMap={};
+  txns.forEach(function(t){if(t.type==='income')income+=t.amount;else{expense+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount}});
+  document.getElementById('kpiIncome').textContent='¥'+income.toFixed(0);
+  document.getElementById('kpiExpense').textContent='¥'+expense.toFixed(0);
+  document.getElementById('kpiBalance').textContent='¥'+(income-expense).toFixed(0);
+  drawBarChart(catMap,expense);
+  renderSpendList(catMap,expense);
+  if(activeTab==='trend')drawLineChart();
+}
+
+// ── Bar Chart (Canvas) ──
+function drawBarChart(catMap,total){
+  var canvas=document.getElementById('barChart');
+  var dpr=window.devicePixelRatio||1;
+  var rect=canvas.parentElement.getBoundingClientRect();
+  var W=rect.width-32,H=Math.max(120,Object.keys(catMap).length*32);
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+  var cats=Object.entries(catMap).sort(function(a,b){return b[1]-a[1]});
+  if(cats.length===0){ctx.fillStyle='#9ca3af';ctx.font='13px sans-serif';ctx.textAlign='center';ctx.fillText('暂无支出记录',W/2,H/2);return}
+  var ramps=['#d4f1e4','#a3e0c0','#6fcf97','#27ae60','#1e8449']; // green sequential ramp
+  var barH=22,gap=8,maxW=W-120;
+  cats.forEach(function(e,i){
+    var y=i*(barH+gap),w=(total>0?e[1]/total*maxW:0),r=barH/2;
+    // Background track
+    ctx.fillStyle='#f3f4f6';ctx.beginPath();roundRect(ctx,80,y,maxW,barH,r);ctx.fill();
+    // Bar with sequential color
+    var ci=Math.min(i,ramps.length-1);
+    ctx.fillStyle=ramps[ci];ctx.beginPath();roundRect(ctx,80,y,w,barH,r);ctx.fill();
+    // Category label
+    ctx.fillStyle='#1a1a1a';ctx.font='13px -apple-system,sans-serif';ctx.textAlign='right';ctx.fillText(e[0],72,y+barH/2+4);
+    // Amount label on bar
+    if(w>40){ctx.fillStyle='#fff';ctx.font='bold 11px -apple-system,sans-serif';ctx.textAlign='right';ctx.fillText('¥'+e[1].toFixed(0),78+w-8,y+barH/2+4)}
+  });
+}
+
+function roundRect(ctx,x,y,w,h,r){ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.arcTo(x+w,y,x+w,y+r,r);ctx.lineTo(x+w,y+h-r);ctx.arcTo(x+w,y+h,x+w-r,y+h,r);ctx.lineTo(x+r,y+h);ctx.arcTo(x,y+h,x,y+h-r,r);ctx.lineTo(x,y+r);ctx.arcTo(x,y,x+r,y,r);ctx.closePath()}
+
+// ── Spend List ──
+var EXP_ICONS={餐饮:'🍜',交通:'🚌',购物:'🛍',住房:'🏠',娱乐:'🎮',医疗:'💊',教育:'📚',日用:'🧴',其他:'💸'};
+function renderSpendList(catMap,total){
+  var cats=Object.entries(catMap).sort(function(a,b){return b[1]-a[1]});
+  var ramps=['#d4f1e4','#a3e0c0','#6fcf97','#27ae60','#1e8449'];
+  document.getElementById('spendList').innerHTML=cats.length===0?'<div style="text-align:center;color:#9ca3af;padding:20px">暂无支出</div>':
+    cats.map(function(e,i){
+      var pct=total>0?Math.round(e[1]/total*100):0;
+      return '<div class="spend-row">'+
+        '<span class="spend-icon">'+(EXP_ICONS[e[0]]||'💸')+'</span>'+
+        '<span class="spend-name">'+e[0]+'</span>'+
+        '<span class="spend-amount">¥'+e[1].toFixed(0)+'</span>'+
+        '<span class="spend-pct">'+pct+'%</span>'+
+        '</div>';
+    }).join('');
+}
+
+// ── Line Chart (6-month trend) ──
+function drawLineChart(){
+  var canvas=document.getElementById('lineChart');
+  var dpr=window.devicePixelRatio||1;
+  var rect=canvas.parentElement.getBoundingClientRect();
+  var W=rect.width-32,H=180;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+
+  // Gather last 6 months data
+  var months=[],incomeData=[],expenseData=[];
+  for(var i=5;i>=0;i--){
+    var m=currentMonth-i,y=currentYear;
+    if(m<0){m+=12;y--}
+    months.push((m+1)+'月');
+    var mt=0,et=0;
+    getTxns().forEach(function(t){var d=new Date(t.date);if(d.getMonth()===m&&d.getFullYear()===y){if(t.type==='income')mt+=t.amount;else et+=t.amount}});
+    incomeData.push(mt);expenseData.push(et);
+  }
+
+  var pad={top:24,right:16,bottom:32,left:48};
+  var pw=W-pad.left-pad.right,ph=H-pad.top-pad.bottom;
+  var allVals=incomeData.concat(expenseData);
+  var maxV=Math.max.apply(null,allVals)||100;
+  maxV=Math.ceil(maxV/100)*100+100;
+
+  function x(i){return pad.left+(i/(months.length-1))*pw}
+  function y(v){return pad.top+ph-(v/maxV*ph)}
+
+  // Grid lines (recessive)
+  for(var gy=0;gy<=maxV;gy+=Math.ceil(maxV/4)){
+    var gy2=pad.top+ph-(gy/maxV*ph);
+    ctx.strokeStyle='#f3f4f6';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad.left,gy2);ctx.lineTo(pad.left+pw,gy2);ctx.stroke();
+    ctx.fillStyle='#9ca3af';ctx.font='10px sans-serif';ctx.textAlign='right';ctx.fillText('¥'+(gy/1000>=1?(gy/1000).toFixed(1)+'k':gy),pad.left-6,gy2+3);
+  }
+
+  // Expense line (red)
+  ctx.strokeStyle='#e74c3c';ctx.lineWidth=2;ctx.lineJoin='round';
+  ctx.beginPath();months.forEach(function(_,i){var xx=x(i),yy=y(expenseData[i]);if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy)});ctx.stroke();
+  // Expense dots
+  months.forEach(function(_,i){var xx=x(i),yy=y(expenseData[i]);ctx.fillStyle='#e74c3c';ctx.beginPath();ctx.arc(xx,yy,4,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(xx,yy,2,0,Math.PI*2);ctx.fill()});
+
+  // Income line (green)
+  ctx.strokeStyle='#27ae60';ctx.lineWidth=2;ctx.lineJoin='round';
+  ctx.beginPath();months.forEach(function(_,i){var xx=x(i),yy=y(incomeData[i]);if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy)});ctx.stroke();
+  months.forEach(function(_,i){var xx=x(i),yy=y(incomeData[i]);ctx.fillStyle='#27ae60';ctx.beginPath();ctx.arc(xx,yy,4,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(xx,yy,2,0,Math.PI*2);ctx.fill()});
+
+  // Direct labels on last point
+  var lx=x(5)+10,liy=y(incomeData[5]),ley=y(expenseData[5]);
+  ctx.fillStyle='#27ae60';ctx.font='bold 11px sans-serif';ctx.textAlign='left';ctx.fillText('收入 ¥'+incomeData[5].toFixed(0),lx,liy+4);
+  ctx.fillStyle='#e74c3c';ctx.font='bold 11px sans-serif';ctx.fillText('支出 ¥'+expenseData[5].toFixed(0),lx,ley+4);
+
+  // X labels
+  months.forEach(function(m,i){ctx.fillStyle='#9ca3af';ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillText(m,x(i),pad.top+ph+20)});
+}
+
+// ── Init ──
+renderAll();
+window.addEventListener('resize',function(){renderAll()});
+</script>
+</body>
+</html>
