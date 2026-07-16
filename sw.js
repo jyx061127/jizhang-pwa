@@ -1,4 +1,4 @@
-const CACHE = 'jizhang-v1';
+const CACHE = 'jizhang-v2';
 const ASSETS = ['/','/index.html','/manifest.json'];
 
 self.addEventListener('install', e => {
