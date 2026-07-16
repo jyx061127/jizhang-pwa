@@ -99,9 +99,9 @@ function changeMonth(d){currentMonth+=d;if(currentMonth<0){currentMonth=11;curre
 
 // ── Render ──
 function renderAll(){
-  var txns=getTxns().filter(function(t){var d=new Date(t.date);return d.getMonth()===currentMonth&&d.getFullYear()===currentYear});
+  var txns=getTxns().filter(function(t){var d=new Date(t.date);if(isNaN(d.getTime()))return false;return d.getMonth()===currentMonth&&d.getFullYear()===currentYear});
   var income=0,expense=0,catMap={};
-  txns.forEach(function(t){if(t.type==='income')income+=t.amount;else{expense+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount}});
+  txns.forEach(function(t){if(t.type==='income')income+=t.amount;else if(t.type==='expense'){expense+=t.amount;catMap[t.category]=(catMap[t.category]||0)+t.amount}});
   document.getElementById('kpiIncome').textContent='¥'+income.toFixed(0);
   document.getElementById('kpiExpense').textContent='¥'+expense.toFixed(0);
   document.getElementById('kpiBalance').textContent='¥'+(income-expense).toFixed(0);
@@ -204,8 +204,9 @@ function drawLineChart(){
   ctx.beginPath();months.forEach(function(_,i){var xx=x(i),yy=y(incomeData[i]);if(i===0)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy)});ctx.stroke();
   months.forEach(function(_,i){var xx=x(i),yy=y(incomeData[i]);ctx.fillStyle='#27ae60';ctx.beginPath();ctx.arc(xx,yy,4,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(xx,yy,2,0,Math.PI*2);ctx.fill()});
 
-  // Direct labels on last point
+  // Direct labels — offset if equal to avoid overlap
   var lx=x(5)+10,liy=y(incomeData[5]),ley=y(expenseData[5]);
+  if(Math.abs(liy-ley)<16){ley-=16}
   ctx.fillStyle='#27ae60';ctx.font='bold 11px sans-serif';ctx.textAlign='left';ctx.fillText('收入 ¥'+incomeData[5].toFixed(0),lx,liy+4);
   ctx.fillStyle='#e74c3c';ctx.font='bold 11px sans-serif';ctx.fillText('支出 ¥'+expenseData[5].toFixed(0),lx,ley+4);
 
@@ -215,7 +216,7 @@ function drawLineChart(){
 
 // ── Init ──
 renderAll();
-window.addEventListener('resize',function(){renderAll()});
+var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(renderAll,200)});
 </script>
 </body>
 </html>
